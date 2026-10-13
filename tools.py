@@ -3,7 +3,9 @@ import chromadb
 
 HAZE_API = "https://haze-api.onrender.com/haze"
 
-client = chromadb.PersistentClient(path="chroma_db")
+import os
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+client = chromadb.PersistentClient(path=os.path.join(BASE_DIR, "chroma_db"))
 rules = client.get_collection("advisories")
 
 
