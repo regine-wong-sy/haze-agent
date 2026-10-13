@@ -1,9 +1,13 @@
 import json
-from ollama import chat
+import os
+from dotenv import load_dotenv
+from ollama import Client
 import tools
 
-MODEL = "qwen3:4b"
-
+load_dotenv()
+client = Client(host="https://ollama.com",
+                headers={"Authorization": "Bearer " + os.environ["OLLAMA_API_KEY"]})
+MODEL = "gpt-oss:20b"
 # 1. Describe the tools to the model
 TOOLS = [
     {
@@ -62,7 +66,7 @@ def ask(question, max_steps=5):
     ]
 
     for _ in range(max_steps):
-        response = chat(model=MODEL, messages=messages, tools=TOOLS, think=False)
+        response = client.chat(model=MODEL, messages=messages, tools=TOOLS)
         messages.append(response.message)
 
         if not response.message.tool_calls:          # no tool requested = final answer
