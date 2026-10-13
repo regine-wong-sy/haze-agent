@@ -1,0 +1,82 @@
+import json
+from ollama import chat
+import tools
+
+MODEL = "qwen3:4b"
+
+# 1. Describe the tools to the model
+TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "get_psi",
+            "description": "Get the live 24-hr PSI and level for a Singapore region "
+                           "(north/south/east/west/central) or area (e.g. bedok, jurong). "
+                           "Use this first whenever the user asks about current haze conditions.",
+            "parameters": {
+                "type": "object",
+                "properties": {"region": {"type": "string", "description": "Region or area, e.g. 'jurong'"}},
+                "required": ["region"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_advisories",
+            "description": "Search official NEA and MOM haze guidelines for advice relevant to the "
+                           "question at a given PSI. Requires a PSI number, so call get_psi first.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "question": {"type": "string", "description": "What the user wants to do"},
+                    "psi": {"type": "integer", "description": "The 24-hr PSI from get_psi"},
+                },
+                "required": ["question", "psi"],
+            },
+        },
+    },
+]
+
+# 2. Rules for how the agent behaves
+SYSTEM = (
+    "You are a Singapore haze safety assistant. Use get_psi for live PSI, then "
+    "search_advisories for official guidance. Base your answer only on the advisories "
+    "returned, and cite the source (NEA or MOM) for each recommendation. "
+    "If a tool returns an error, say so plainly instead of guessing."
+)
+
+# 3. Map tool names to your real Python functions
+def run_tool(name, args):
+    if name == "get_psi":
+        return tools.get_psi(args["region"])
+    if name == "search_advisories":
+        return tools.search_advisories(args["question"], int(args["psi"]))
+    return {"error": f"Unknown tool: {name}"}
+
+# 4. The agent loop
+def ask(question, max_steps=5):
+    messages = [
+        {"role": "system", "content": SYSTEM},
+        {"role": "user", "content": question},
+    ]
+
+    for _ in range(max_steps):
+        response = chat(model=MODEL, messages=messages, tools=TOOLS, think=False)
+        messages.append(response.message)
+
+        if not response.message.tool_calls:          # no tool requested = final answer
+            answer = response.message.content or ""
+            return answer.split("</think>")[-1].strip()
+    
+        for call in response.message.tool_calls:
+            name = call.function.name
+            args = call.function.arguments
+            print(f"  -> calling {name}({args})")
+            output = run_tool(name, args)
+            messages.append({"role": "tool", "tool_name": name, "content": json.dumps(output)})
+
+    return "Stopped: too many steps."
+
+if __name__ == "__main__":
+    print(ask(input("Ask: ")))
