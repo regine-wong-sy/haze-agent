@@ -1,13 +1,19 @@
+import os
 import requests
 import chromadb
+from chromadb.utils.embedding_functions import ONNXMiniLM_L6_V2
 
 HAZE_API = "https://haze-api.onrender.com/haze"
-
-import os
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+#keep the embedding model inside the project so Render doesn't throw it away after the build
+ONNXMiniLM_L6_V2.DOWNLOAD_PATH = os.path.join(BASE_DIR, "onnx_model")
+
 client = chromadb.PersistentClient(path=os.path.join(BASE_DIR, "chroma_db"))
 rules = client.get_collection("advisories")
 
+#warm up: load the model when the server starts, not during someone's question
+rules.query(query_texts=["warm up"], n_results=1)
 
 def get_psi(region):
     """Get the current 24-hr PSI for a Singapore region or area (e.g. 'east', 'bedok')."""

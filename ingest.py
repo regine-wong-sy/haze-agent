@@ -1,4 +1,9 @@
 import chromadb
+import os
+from chromadb.utils.embedding_functions import ONNXMiniLM_L6_V2
+
+#same folder as tools.py so the build downloads the model into the project
+ONNXMiniLM_L6_V2.DOWNLOAD_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "onnx_model")
 
 client = chromadb.PersistentClient(path="chroma_db")
 try:
@@ -31,7 +36,7 @@ for i, block in enumerate(blocks):
 
     band = fields["band"]                # "101-200"
     lo, hi = band.split("-")             # lo="101", hi="200"
-    
+
     ids.append(f"chunk-{i}")
     docs.append(text.strip())
     metas.append({"min_psi": int(lo), "max_psi": int(hi), "source": fields["source"]})
