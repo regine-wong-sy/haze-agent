@@ -1,0 +1,40 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Haze Agent</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 640px; margin: 40px auto; padding: 0 16px; }
+    textarea { width: 100%; height: 80px; font-size: 16px; }
+    button { margin-top: 8px; padding: 8px 16px; font-size: 16px; }
+    #answer { white-space: pre-wrap; margin-top: 20px; padding: 12px; background: #f3f3f3; border-radius: 8px; }
+  </style>
+</head>
+<body>
+  <h1>Haze Agent</h1>
+  <p>Ask about haze safety in Singapore. Answers use live PSI and official NEA/MOM guidelines.</p>
+  <textarea id="q" placeholder="Can construction workers in Jurong work outside right now?"></textarea>
+  <button onclick="send()">Ask</button>
+  <div id="answer"></div>
+
+  <script>
+    async function send() {
+      const q = document.getElementById("q").value;
+      const out = document.getElementById("answer");
+      out.textContent = "Thinking... (first request can take up to a minute)";
+      try {
+        const res = await fetch("/ask", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ question: q })
+        });
+        const data = await res.json();
+        out.textContent = data.answer || data.error;
+      } catch (e) {
+        out.textContent = "Request failed: " + e;
+      }
+    }
+  </script>
+</body>
+</html>

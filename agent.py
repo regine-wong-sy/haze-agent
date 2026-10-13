@@ -45,11 +45,14 @@ TOOLS = [
 # 2. Rules for how the agent behaves
 SYSTEM = (
     "You are a Singapore haze safety assistant. Use get_psi for live PSI, then "
-    "search_advisories for official guidance. Base your answer only on the advisories "
-    "returned, and cite the source (NEA or MOM) for each recommendation. "
-    "If a tool returns an error, say so plainly instead of guessing."
+    "search_advisories for official guidance. "
+    "Only state facts that appear in the tool results. Do not add thresholds, "
+    "agencies, or rules from your own knowledge. "
+    "If the advisories do not cover the question, say: 'The NEA/MOM guidelines I have "
+    "don't cover this.' "
+    "Cite the source (NEA or MOM) after each recommendation. "
+    "Reply in plain text with short paragraphs or simple dashes. No tables, no bold, no markdown."
 )
-
 # 3. Map tool names to your real Python functions
 def run_tool(name, args):
     if name == "get_psi":
