@@ -6,7 +6,8 @@ import tools
 
 load_dotenv()
 client = Client(host="https://ollama.com",
-                headers={"Authorization": "Bearer " + os.environ["OLLAMA_API_KEY"]})
+                headers={"Authorization": "Bearer " + os.environ["OLLAMA_API_KEY"]},
+                timeout=60) #give up after 60s instead of hanging forever   
 MODEL = "gpt-oss:20b"
 # 1. Describe the tools to the model
 TOOLS = [
