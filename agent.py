@@ -1,5 +1,6 @@
 import json
 import os
+import time
 from dotenv import load_dotenv
 from ollama import Client
 import tools
@@ -83,11 +84,13 @@ def ask(question, max_steps=5, route="cloud"):
     ]
 
     for _ in range(max_steps):
+        t0 = time.time()
         if route == "local":
             #qwen3 "thinks" out loud by default, turn off so faster
             response = client.chat(model=model, messages=messages, tools=TOOLS, think=False)
         else:
             response = client.chat(model=model, messages=messages, tools=TOOLS)
+        print(f"  model call took {time.time() - t0:.1f}s")
         messages.append(response.message)
 
         if not response.message.tool_calls:          # no tool requested = final answer
@@ -98,7 +101,9 @@ def ask(question, max_steps=5, route="cloud"):
             name = call.function.name
             args = call.function.arguments
             print(f"  -> calling {name}({args})")
+            t1 = time.time()
             output = run_tool(name, args)
+            print(f"  {name} took {time.time() - t1:.1f}s")
             messages.append({"role": "tool", "tool_name": name, "content": json.dumps(output)})
 
     return "Stopped: too many steps."
