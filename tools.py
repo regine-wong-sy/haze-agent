@@ -9,15 +9,24 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 #keep the embedding model inside the project so Render doesn't throw it away after the build
 ONNXMiniLM_L6_V2.DOWNLOAD_PATH = os.path.join(BASE_DIR, "onnx_model")
 
-client = chromadb.PersistentClient(path=os.path.join(BASE_DIR, "chroma_db"))
-rules = client.get_collection("advisories")
+_rules = None
+
+def get_rules():
+    """Open Chroma on first use, inside the worker process.
+    Opening it at import time breaks under gunicorn --preload: the client is created
+    in the master and then forked, and queries in the worker hang."""
+    global _rules
+    if _rules is None:
+        client = chromadb.PersistentClient(path=os.path.join(BASE_DIR, "chroma_db"))
+        _rules = client.get_collection("advisories")
+    return _rules
 
 USE_EMBEDDINGS = os.environ.get("USE_EMBEDDINGS", "1") == "1" #set to 0 on Render
 print("USE_EMBEDDINGS =", USE_EMBEDDINGS, "| env value:", repr(os.environ.get("USE_EMBEDDINGS")))
 
 #warm up: load the model when the server starts (only if we're using it)
 if USE_EMBEDDINGS:
-    rules.query(query_texts=["warm up"], n_results=1)
+    get_rules().query(query_texts=["warm up"], n_results=1)
 
 def get_psi(region):
     """Get the current 24-hr PSI for a Singapore region or area (e.g. 'east', 'bedok')."""
@@ -39,12 +48,12 @@ def search_advisories(question, psi, n_results=3):
 
     if USE_EMBEDDINGS:
         #semantic search: rules for this PSI, ranked by meaning
-        results = rules.query(query_texts=[question], n_results=n_results, where=psi_filter)
+        results = get_rules().query(query_texts=[question], n_results=n_results, where=psi_filter)
         docs = results["documents"][0]
         metas = results["metadatas"][0]
     else:
         #no embedding model: return every rule for this PSI and let the AI pick
-        results = rules.get(where=psi_filter)
+        results = get_rules().get(where=psi_filter)
         docs = results["documents"]
         metas = results["metadatas"]
 
