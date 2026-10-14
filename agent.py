@@ -4,11 +4,17 @@ from dotenv import load_dotenv
 from ollama import Client
 import tools
 
-load_dotenv()
-client = Client(host="https://ollama.com",
-                headers={"Authorization": "Bearer " + os.environ["OLLAMA_API_KEY"]},
-                timeout=60) #give up after 60s instead of hanging forever   
-MODEL = "gpt-oss:20b"
+load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
+local_client = Client(host="http://localhost:11434") #Ollama on my laptop
+cloud_client = Client(host="https://ollama.com",
+                      headers={"Authorization": "Bearer " + os.environ["OLLAMA_API_KEY"]},
+                      timeout=60)
+
+#each route = which client to talk to + which model
+MODELS = {
+    "local": {"client": local_client, "model": "qwen3:4b"},
+    "cloud": {"client": cloud_client, "model": "gpt-oss:20b"},
+}
 # 1. Describe the tools to the model
 TOOLS = [
     {
@@ -67,14 +73,21 @@ def run_tool(name, args):
     return {"error": f"Unknown tool: {name}"}
 
 # 4. The agent loop
-def ask(question, max_steps=5):
+def ask(question, max_steps=5, route="cloud"):
+    client = MODELS[route]["client"]
+    model = MODELS[route]["model"]
+
     messages = [
         {"role": "system", "content": SYSTEM},
         {"role": "user", "content": question},
     ]
 
     for _ in range(max_steps):
-        response = client.chat(model=MODEL, messages=messages, tools=TOOLS)
+        if route == "local":
+            #qwen3 "thinks" out loud by default, turn off so faster
+            response = client.chat(model=model, messages=messages, tools=TOOLS, think=False)
+        else:
+            response = client.chat(model=model, messages=messages, tools=TOOLS)
         messages.append(response.message)
 
         if not response.message.tool_calls:          # no tool requested = final answer

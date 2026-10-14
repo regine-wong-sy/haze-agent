@@ -1,6 +1,7 @@
 import agent
 import tools
-
+import os
+ROUTE = os.environ.get("ROUTE", "cloud") #which model to test: local or cloud
 #each test: a fake PSI, a question, and what the answer must contain
 #must_include = every word has to appear
 #any_of       = at least ONE of these words has to appear
@@ -43,7 +44,7 @@ def run_test(test):
     tools.get_psi = lambda region: {"region": "test", "psi": test["psi"], "level": "test"}
 
     try:
-        answer = agent.ask(test["question"] + " (area: bedok)")
+        answer = agent.ask(test["question"] + " (area: bedok)", route=ROUTE)
     except Exception as e:
         return f"ERROR: {e}", ["agent error"]
     answer_lower = answer.lower()
@@ -71,7 +72,7 @@ def run_test(test):
 if __name__ == "__main__":
     #shows which retrieval mode this run is testing
     mode = "embeddings (top 3)" if tools.USE_EMBEDDINGS else "PSI filter only (all matching rules)"
-    print(f"Mode: {mode}\n")
+    print(f"Mode: {mode} | Model: {ROUTE}\n")
 
     passed = 0
     errors = 0
