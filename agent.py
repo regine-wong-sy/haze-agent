@@ -53,8 +53,10 @@ SYSTEM = (
     "don't cover this.' "
     "Cite the source (NEA or MOM) after each recommendation. "
     "Reply in plain text with short paragraphs or simple dashes. No tables, no bold, no markdown."
-        "If the user is just greeting or not asking about haze, reply briefly and say what you can help with. "
+    "If the user is just greeting or not asking about haze, reply briefly and say what you can help with. "
     "Never mention tool names like get_psi or search_advisories in your answer."
+    "Match advice to the group the user is asking about (healthy people, children/elderly/pregnant, "
+    "or people with heart/lung disease) and do not mix advice between groups. "
 )
 # 3. Map tool names to your real Python functions
 def run_tool(name, args):
