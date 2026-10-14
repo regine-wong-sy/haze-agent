@@ -1,6 +1,6 @@
 from flask import Flask, request
 from flask_cors import CORS
-from agent import ask
+from agent import ask, SORRY
 
 app = Flask(__name__)
 CORS(app, origins=["https://haze-api.onrender.com"]) #only my Haze-API site can call /ask
@@ -31,7 +31,9 @@ def ask_route():
     try:
         answer = ask(question)
     except Exception as e:
-        return {"error": f"Agent failed: {e}"}, 500
+        print(f"Agent failed: {e}")
+        #timeouts and model errors: say sorry instead of hanging or showing an error
+        return {"question": question, "answer": SORRY}
 
     return {"question": question, "answer": answer}
 

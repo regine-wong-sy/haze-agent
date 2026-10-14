@@ -9,7 +9,9 @@ load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 local_client = Client(host="http://localhost:11434") #Ollama on my laptop
 cloud_client = Client(host="https://ollama.com",
                       headers={"Authorization": "Bearer " + os.environ["OLLAMA_API_KEY"]},
-                      timeout=60)
+                      timeout=25) #fail fast instead of hanging for a minute per call
+
+SORRY = "Sorry, I don't know how to answer this. Try asking about haze conditions or what to do at the current PSI."
 
 #each route = which client to talk to + which model
 MODELS = {
@@ -61,7 +63,9 @@ SYSTEM = (
     "Cite the source (NEA or MOM) after each recommendation. "
     "Reply in plain text with short paragraphs or simple dashes. No tables, no bold, no markdown."
     "If the user is just greeting or not asking about haze, reply briefly and say what you can help with. "
-    "Never mention tool names like get_psi or search_advisories in your answer."
+    "Never mention tool names like get_psi or search_advisories in your answer. "
+    "If the question is too vague to understand (e.g. 'help me') or is not about haze, "
+    "do not call any tools. Reply exactly: Sorry, I don't know how to answer this. "
     "Match advice to the group the user is asking about (healthy people, children/elderly/pregnant, "
     "or people with heart/lung disease) and do not mix advice between groups. "
 )
@@ -74,7 +78,7 @@ def run_tool(name, args):
     return {"error": f"Unknown tool: {name}"}
 
 # 4. The agent loop
-def ask(question, max_steps=5, route="cloud"):
+def ask(question, max_steps=3, route="cloud"):
     client = MODELS[route]["client"]
     model = MODELS[route]["model"]
 
@@ -106,7 +110,7 @@ def ask(question, max_steps=5, route="cloud"):
             print(f"  {name} took {time.time() - t1:.1f}s")
             messages.append({"role": "tool", "tool_name": name, "content": json.dumps(output)})
 
-    return "Stopped: too many steps."
+    return SORRY #ran out of steps without a final answer
 
 if __name__ == "__main__":
     print(ask(input("Ask: ")))
