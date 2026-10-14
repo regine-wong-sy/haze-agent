@@ -13,6 +13,7 @@ client = chromadb.PersistentClient(path=os.path.join(BASE_DIR, "chroma_db"))
 rules = client.get_collection("advisories")
 
 USE_EMBEDDINGS = os.environ.get("USE_EMBEDDINGS", "1") == "1" #set to 0 on Render
+print("USE_EMBEDDINGS =", USE_EMBEDDINGS, "| env value:", repr(os.environ.get("USE_EMBEDDINGS")))
 
 #warm up: load the model when the server starts (only if we're using it)
 if USE_EMBEDDINGS:
@@ -34,6 +35,7 @@ def get_psi(region):
 def search_advisories(question, psi, n_results=3):
     """Find official NEA/MOM haze advice relevant to the question at this PSI level."""
     psi_filter = {"$and": [{"min_psi": {"$lte": psi}}, {"max_psi": {"$gte": psi}}]}
+    print(f"  search_advisories start | embeddings={USE_EMBEDDINGS} psi={psi}", flush=True)
 
     if USE_EMBEDDINGS:
         #semantic search: rules for this PSI, ranked by meaning
@@ -46,6 +48,7 @@ def search_advisories(question, psi, n_results=3):
         docs = results["documents"]
         metas = results["metadatas"]
 
+    print(f"  search_advisories done | {len(docs)} rules found", flush=True)
     return [{"source": meta["source"], "text": text} for text, meta in zip(docs, metas)]
 
 if __name__ == "__main__":
