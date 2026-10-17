@@ -1,7 +1,7 @@
 from flask import Flask, request
 from flask_cors import CORS
 from agent import ask, SORRY
-
+from db import save_conversation
 app = Flask(__name__)
 CORS(app, origins=["https://haze-api.onrender.com"]) #only my Haze-API site can call /ask
 MAX_QUESTION_LENGTH = 300 #stops people using up the free quota
@@ -29,13 +29,16 @@ def ask_route():
 
     #runs the agent loop (get_psi -> search_advisories -> answer)
     try:
-        answer = ask(question)
+        info = ask(question)
     except Exception as e:
         print(f"Agent failed: {e}")
         #timeouts and model errors: say sorry instead of hanging or showing an error
         return {"question": question, "answer": SORRY}
-
-    return {"question": question, "answer": answer}
+    try:
+        save_conversation(question, info)
+    except Exception as e:
+        print(f"Save failed: {e}")
+    return {"question": question, "answer": info["answer"]}
 
 if __name__ == "__main__":
     app.run(port=8081, debug=True)

@@ -81,6 +81,8 @@ def run_tool(name, args):
 def ask(question, max_steps=3, route="cloud"):
     client = MODELS[route]["client"]
     model = MODELS[route]["model"]
+    info = {"area": None, "psi": None, "tools_used": [], "route": route}
+
 
     messages = [
         {"role": "system", "content": SYSTEM},
@@ -99,7 +101,8 @@ def ask(question, max_steps=3, route="cloud"):
 
         if not response.message.tool_calls:          # no tool requested = final answer
             answer = response.message.content or ""
-            return answer.split("</think>")[-1].strip()
+            info["answer"]=answer.split("</think>")[-1].strip()
+            return info
     
         for call in response.message.tool_calls:
             name = call.function.name
@@ -107,10 +110,15 @@ def ask(question, max_steps=3, route="cloud"):
             print(f"  -> calling {name}({args})")
             t1 = time.time()
             output = run_tool(name, args)
+            info["tools_used"].append(name)
+            if name == "get_psi":
+                info["area"]= args["region"]
+                if "error" not in output:
+                        info["psi"] = output["psi"]
             print(f"  {name} took {time.time() - t1:.1f}s")
             messages.append({"role": "tool", "tool_name": name, "content": json.dumps(output)})
-
-    return SORRY #ran out of steps without a final answer
+    info["answer"] =SORRY
+    return info #ran out of steps without a final answer
 
 if __name__ == "__main__":
-    print(ask(input("Ask: ")))
+    print(ask(input("Ask: "))["answer"])

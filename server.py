@@ -19,7 +19,7 @@ def ask_haze_agent(question: str) -> dict:
     official NEA/MOM guidelines. Questions with personal health information are
     answered by a local model so that data never leaves this machine."""
     route, reason = router.pick_route(question)
-    answer = agent.ask(question, route=route)
+    answer = agent.ask(question, route=route)["answer"]
     return {"model_used": route, "reason": reason, "answer": answer}
 
 @mcp.tool()

@@ -44,7 +44,7 @@ def run_test(test):
     tools.get_psi = lambda region: {"region": "test", "psi": test["psi"], "level": "test"}
 
     try:
-        answer = agent.ask(test["question"] + " (area: bedok)", route=ROUTE)
+        answer = agent.ask(test["question"] + " (area: bedok)", route=ROUTE)["answer"]
     except Exception as e:
         return f"ERROR: {e}", ["agent error"]
     answer_lower = answer.lower()
