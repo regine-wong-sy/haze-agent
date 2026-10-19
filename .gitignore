@@ -3,3 +3,4 @@ __pycache__/
 .env
 chroma_db/
 onnx_model/
+node_modules/
