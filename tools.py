@@ -56,7 +56,8 @@ def get_psi_direct(region):
     if key not in readings:
         return {"error": f"Unknown region '{region}'. Try north, south, east, west or central."}
     psi = readings[key]
-    return {"region": key, "psi": psi, "level": psi_level(psi), "source": "data.gov.sg"}
+    #same keys as Haze-API's reply; an extra "source" key made the model confuse it with NEA/MOM citations
+    return {"region": key, "psi": psi, "level": psi_level(psi)}
 
 def get_psi(region):
     """Get the current 24-hr PSI for a Singapore region or area (e.g. 'east', 'bedok').
