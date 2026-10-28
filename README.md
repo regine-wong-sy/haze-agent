@@ -1,77 +1,85 @@
 # Haze Agent
 
-An AI agent that answers haze safety questions in Singapore using live PSI data and NEA and MOM guidelines, with a citation for every recommendation.
+An AI agent that answers Singapore haze safety questions using **live PSI data** and **official NEA/MOM guidelines**, plus a **conversation review dashboard** for checking and flagging the agent's answers.
 
-*"Can construction workers in Jurong work outside right now?"*
-→ checks the live PSI (e.g. 156, Unhealthy), retrieves the matching MOM guidelines, and answers: employers should provide fit-tested masks, schedule regular breaks and keep workers hydrated, or risk enforcement under the Workplace Safety and Health Act (MOM).
+**Live:** [haze-agent.onrender.com](https://haze-agent.onrender.com) · also embedded as the Ask box on [Haze Monitor](https://haze-api.onrender.com)
 
-**Live demo:** [haze-api.onrender.com](https://haze-api.onrender.com).
-*(Free hosting: the first request after a quiet period can take up to a minute to wake up.)*
+> Free Render instances sleep when idle, so the first request can take 30–60s.
 
-## How it works
+## What it does
 
-1. **Agent loop.** The model decides which tool to call
-my code runs it and returns the result, until the model has enough to answer.
-2. **`get_psi`.** Calls my [Haze-API](https://github.com/regine-wong-sy/Haze-API), which serves live 24-hr PSI from NEA data.
-3. **`search_advisories`.** Retrieves the official guidelines for that PSI level:
-   - **Metadata filter** keeps only rules whose PSI range contains the current PSI (maths handled by code).
-   - **Embedding search** ranks those rules by meaning, so "construction workers" matches "employers… outdoor work".
-4. **Grounded answer.** The system prompt limits the model to facts from the retrieved rules, and makes it say so when the guidelines don't cover a question.
+Ask something like *"Can construction workers in Jurong work outside right now?"* and the agent:
 
-## Features
+1. Calls `get_psi` to fetch the live 24-hr PSI for that area (via my [Haze-API](https://github.com/regine-wong-sy/Haze-API))
+2. Calls `search_advisories` to find the NEA/MOM guidance for that PSI band
+3. Answers using only facts from those tool results, citing NEA or MOM
 
-- **RAG** over 13 real NEA and MOM haze guideline chunks, tagged with PSI ranges
-- **Tool calling** with an agent loop written from scratch (step limit, timeouts, errors returned as data)
-- **MCP server** (server.py) exposes the same tools to any MCP client, such as Claude Desktop
-- **Web chat** (web.py) deployed on Render and embedded in the Haze Monitor page via CORS
-- **Eval suite** (eval.py) with 10 test cases and a fixed PSI so runs are repeatable
+Every conversation is logged to Postgres, and a password-protected dashboard lets me review answers and **flag** bad ones (wrong advice, made-up facts, formatting problems) to fix in the prompt and add to the eval set.
+
+## Architecture
+
+```
+Haze Monitor page ──▶ Haze Agent (Python/Flask) ──▶ Haze-API (live PSI)
+                            │       └──▶ ChromaDB (NEA/MOM advisories)
+                            ▼
+                    Neon Postgres  (conversations table)
+                            ▲
+Dashboard (React + TS) ◀── Node + TS API (Express, password protected)
+```
+
+Three services on Render: Haze-API, Haze Agent, and the dashboard (the Node API serves the built React app, so it's one URL with no CORS).
+
+## Stack
+
+| Part  | Tech |
+| Agent | Python, Ollama (cloud `gpt-oss:20b`, local `qwen3:4b`), tool calling |
+| Retrieval | ChromaDB, 13 NEA/MOM advisory chunks filtered by PSI band |
+| Agent server | Flask, gunicorn, MCP server (`get_psi`, `search_advisories`, `ask_haze_agent`) |
+| Database | PostgreSQL (Neon), node-postgres |
+| API | Node.js, Express, TypeScript |
+| Dashboard | React, TypeScript, Vite |
+| Hosting | Render |
+
+## Files
+
+| File       | Purpose |
+| `agent.py` | Agent loop: model ⇄ tools until a final answer, returns answer + area, PSI, tools used, route |
+| `tools.py` | `get_psi` and `search_advisories` (`USE_EMBEDDINGS` switches semantic vs filter-only search) |
+| `ingest.py` | Loads `docs/advisories.txt` into ChromaDB |
+| `router.py` | Chooses cloud or local model |
+| `web.py` | Flask `/ask` endpoint, logs each conversation (a DB failure never blocks the answer) |
+| `db.py` | Saves conversations to Postgres with parameterised queries |
+| `server.py` | MCP server exposing the tools |
+| `eval.py` | Test questions with expected behaviour |
+| `api/` | Node + TS API: `GET /conversations`, `POST /conversations/:id/flag` |
+| `dashboard/` | React + TS review dashboard: list, detail, flag/unflag, stats |
 
 ## Evaluation
 
-eval.py runs 10 questions across all PSI bands, different groups (healthy adults, children, elderly, people with heart disease, employers) and one out-of-scope question, which the agent must admit it can't answer.
+`eval.py` runs a fixed set of questions against the agent:
 
-
-**Bug:** with all matching rules in context, the agent mixed advice between groups (it gave heart-patient advice to children). Adding a group-matching instruction to the system prompt fixed it, confirmed on re-runs.
-
-Scores vary slightly between runs because LLM output isn't deterministic.
+- **10/10** with embedding search
+- **9–10/10** with filter-only search (used on Render), after adding a "don't mix advice between groups" rule to the prompt
 
 ## Design decisions
 
-- **Code for numbers, embeddings for meaning.** Embedding search alone matched "PSI 150" to the "PSI 0–50 good" rule, because it matched the words "outdoor activities". Filtering by PSI range first fixed this.
-- **Two retrieval modes.** The ONNX embedding model stalled on Render's free-tier CPU, so production uses metadata filtering only (`USE_EMBEDDINGS=0`) and lets the model pick from the handful of matching rules. The eval measures the accuracy cost of that trade-off.
-- **Separate services.** The agent runs as its own Render service, apart from Haze-API, so an agent failure doesn't take down the PSI site.
-
-## Project structure
-
-`docs/advisories.txt`: NEA and MOM guideline chunks, labelled with PSI range and source
-`ingest.py`: Splits the rules into chunks and stores them in Chroma
-`tools.py`: `get_psi` and `search_advisories`
-`agent.py`: Agent loop (Ollama Cloud, `gpt-oss:20b`)
-`server.py`: MCP server exposing the tools
-`web.py` + `static/`: Flask `/ask` endpoint and chat page
-`eval.py`: Evaluation suite
+- **Postgres for logs, Chroma for advisories.** Chroma finds text by meaning; the conversation log needs sorting, filtering, counting and updating on exact fields, which is what Postgres is built for.
+- **Answers only from tool results.** The prompt forbids adding thresholds or rules from the model's own knowledge, and the agent says so when the guidelines don't cover a question.
+- **Logging can't break answers.** Saving is wrapped in `try/except`, so a database outage only loses the log entry, not the user's answer.
+- **Dashboard behind a password.** Logged questions can contain personal details, so only the owner can view them.
 
 ## Run locally
 
-python -m venv .venv
-.venv\Scripts\activate # Windows (macOS/Linux: source .venv/bin/activate)
+```bash
+# Agent (Python)
+python -m venv .venv && .venv\Scripts\activate
 pip install -r requirements.txt
+python ingest.py
+python web.py                # http://localhost:8081
 
+# API + dashboard (Node)
+cd dashboard && npm install && npm run build
+cd ../api && npm install && npm run dev   # http://localhost:3001
+```
 
-Create a `.env` file:
-OLLAMA_API_KEY=your_key_here
-
-python ingest.py     # build the rule database
-python agent.py      # ask a question in the terminal
-python web.py        # chat page at http://localhost:8081
-python eval.py       # run the evaluation
-
-To use the tools in Claude Desktop, add `server.py` under `mcpServers` in `claude_desktop_config.json`.
-
-## Tech
-
-Python · Flask · Chroma · ONNX MiniLM embeddings · Ollama Cloud (`gpt-oss:20b`) · MCP Python SDK · Render
-
-## Sources
-
-Guidelines are taken from the [NEA haze advisories](https://www.nea.gov.sg) and the [MOM guidelines for employers on protecting employees from haze](https://www.mom.gov.sg/haze/guidelines-on-protecting-employees-from-haze). This project is for learning and demonstration; check official sources for current advice.
+`.env` (not committed) needs `OLLAMA_API_KEY`, `DATABASE_URL` and `DASHBOARD_PASSWORD`.
