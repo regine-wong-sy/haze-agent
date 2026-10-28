@@ -4,6 +4,7 @@ import chromadb
 from chromadb.utils.embedding_functions import ONNXMiniLM_L6_V2
 
 HAZE_API = "https://haze-api.onrender.com/haze"
+DATA_GOV_PSI = "https://api-open.data.gov.sg/v2/real-time/api/psi"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 #keep the embedding model inside the project so Render doesn't throw it away after the build
@@ -28,17 +29,52 @@ print("USE_EMBEDDINGS =", USE_EMBEDDINGS, "| env value:", repr(os.environ.get("U
 if USE_EMBEDDINGS:
     get_rules().query(query_texts=["warm up"], n_results=1)
 
+def psi_level(psi):
+    """NEA's 24-hr PSI bands."""
+    if psi <= 50: return "Good"
+    if psi <= 100: return "Moderate"
+    if psi <= 200: return "Unhealthy"
+    if psi <= 300: return "Very Unhealthy"
+    return "Hazardous"
+
+#fallback only: Haze-API knows more areas, this covers the common ones
+AREA_TO_REGION = {
+    "bedok": "east", "tampines": "east", "pasir ris": "east", "changi": "east", "geylang": "east",
+    "jurong": "west", "clementi": "west", "bukit batok": "west", "choa chu kang": "west", "tuas": "west",
+    "woodlands": "north", "yishun": "north", "sembawang": "north", "ang mo kio": "north",
+    "orchard": "central", "toa payoh": "central", "bishan": "central", "novena": "central",
+    "queenstown": "south", "tanjong pagar": "south", "harbourfront": "south", "marina bay": "south",
+}
+
+def get_psi_direct(region):
+    """Backup: read the 24-hr PSI straight from data.gov.sg when Haze-API is down."""
+    key = region.strip().lower()
+    key = AREA_TO_REGION.get(key, key)
+    resp = requests.get(DATA_GOV_PSI, timeout=15)
+    resp.raise_for_status()
+    readings = resp.json()["data"]["items"][0]["readings"]["psi_twenty_four_hourly"]
+    if key not in readings:
+        return {"error": f"Unknown region '{region}'. Try north, south, east, west or central."}
+    psi = readings[key]
+    return {"region": key, "psi": psi, "level": psi_level(psi), "source": "data.gov.sg"}
+
 def get_psi(region):
-    """Get the current 24-hr PSI for a Singapore region or area (e.g. 'east', 'bedok')."""
+    """Get the current 24-hr PSI for a Singapore region or area (e.g. 'east', 'bedok').
+    Tries Haze-API first, then falls back to data.gov.sg directly."""
     try:
         resp = requests.get(HAZE_API, params={"region": region}, timeout=60)
         data = resp.json()
+        if resp.status_code == 200:
+            return data
+        primary_error = data.get("error", f"HTTP {resp.status_code}")
     except Exception as e:
-        return {"error": f"Haze-API unavailable: {e}"}
+        primary_error = str(e)
 
-    if resp.status_code != 200:
-        return {"error": data.get("error", "unknown error"), "details": data}
-    return data
+    print(f"  Haze-API failed ({primary_error}), falling back to data.gov.sg", flush=True)
+    try:
+        return get_psi_direct(region)
+    except Exception as e:
+        return {"error": f"Haze-API and data.gov.sg both unavailable: {primary_error}; {e}"}
 
 
 def search_advisories(question, psi, n_results=3):
