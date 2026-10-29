@@ -83,7 +83,7 @@ def run_tool(name, args):
     return {"error": f"Unknown tool: {name}"}
 
 # 4. The agent loop
-def ask(question, max_steps=3, route="cloud"):
+def ask(question, max_steps=5, route="cloud"): #3 ran out when get_psi had to be retried for an unknown area
     client = MODELS[route]["client"]
     model = MODELS[route]["model"]
     info = {"area": None, "psi": None, "tools_used": [], "route": route}
