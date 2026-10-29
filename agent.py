@@ -8,7 +8,7 @@ import tools
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 local_client = Client(host="http://localhost:11434") #Ollama on my laptop
 cloud_client = Client(host="https://ollama.com",
-                      headers={"Authorization": "Bearer " + os.environ["OLLAMA_API_KEY"]},
+                      headers={"Authorization": "Bearer " + os.environ["OLLAMA_API_KEY"].strip()},
                       timeout=25) #fail fast instead of hanging for a minute per call
 
 SORRY = "Sorry, I don't know how to answer this. Try asking about haze conditions or what to do at the current PSI."
@@ -39,14 +39,19 @@ TOOLS = [
         "function": {
             "name": "search_advisories",
             "description": "Search official NEA and MOM haze guidelines for advice relevant to the "
-                           "question at a given PSI. Requires a PSI number, so call get_psi first.",
+                           "question at a given PSI for one group of people. Requires a PSI number, so call get_psi first.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "question": {"type": "string", "description": "What the user wants to do"},
                     "psi": {"type": "integer", "description": "The 24-hr PSI from get_psi"},
+                    "group": {"type": "string", "enum": tools.GROUPS,
+                              "description": "Who the question is about: healthy (healthy adults), "
+                                             "sensitive (children, elderly, pregnant), "
+                                             "chronic (heart or lung disease), "
+                                             "worker (employers and outdoor workers)"},
                 },
-                "required": ["question", "psi"],
+                "required": ["question", "psi", "group"],
             },
         },
     },
@@ -66,15 +71,15 @@ SYSTEM = (
     "Never mention tool names like get_psi or search_advisories in your answer. "
     "If the question is too vague to understand (e.g. 'help me') or is not about haze, "
     "do not call any tools. Reply exactly: Sorry, I don't know how to answer this. "
-    "Match advice to the group the user is asking about (healthy people, children/elderly/pregnant, "
-    "or people with heart/lung disease) and do not mix advice between groups. "
+    "Choose the group the user is asking about when you call search_advisories; "
+    "it only returns advice for that group. "
 )
 # 3. Map tool names to your real Python functions
 def run_tool(name, args):
     if name == "get_psi":
         return tools.get_psi(args["region"])
     if name == "search_advisories":
-        return tools.search_advisories(args["question"], int(args["psi"]))
+        return tools.search_advisories(args["question"], int(args["psi"]), args.get("group", ""))
     return {"error": f"Unknown tool: {name}"}
 
 # 4. The agent loop

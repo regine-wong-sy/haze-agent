@@ -78,19 +78,35 @@ def get_psi(region):
         return {"error": f"Haze-API and data.gov.sg both unavailable: {primary_error}; {e}"}
 
 
-def search_advisories(question, psi, n_results=3):
-    """Find official NEA/MOM haze advice relevant to the question at this PSI level."""
-    psi_filter = {"$and": [{"min_psi": {"$lte": psi}}, {"max_psi": {"$gte": psi}}]}
-    print(f"  search_advisories start | embeddings={USE_EMBEDDINGS} psi={psi}", flush=True)
+#who an advisory is written for; "all" chunks apply to everyone and are always included
+GROUPS = ["healthy", "sensitive", "chronic", "worker"]
+#healthy = healthy adults, sensitive = elderly/pregnant/children,
+#chronic = chronic lung or heart disease, worker = employers and outdoor workers (MOM)
+
+def advisory_filter(psi, group):
+    """Chroma filter: chunks whose PSI band covers this PSI AND that are written for this group
+    (or for everyone). Done here in code so the model can never be handed another group's advice."""
+    return {"$and": [
+        {"min_psi": {"$lte": psi}},
+        {"max_psi": {"$gte": psi}},
+        {"group": {"$in": [group, "all"]}},
+    ]}
+
+def search_advisories(question, psi, group, n_results=3):
+    """Find official NEA/MOM haze advice for this question, PSI level and group of people."""
+    if group not in GROUPS:
+        return {"error": f"Unknown group '{group}'. Use one of: {', '.join(GROUPS)}."}
+    where = advisory_filter(psi, group)
+    print(f"  search_advisories start | embeddings={USE_EMBEDDINGS} psi={psi} group={group}", flush=True)
 
     if USE_EMBEDDINGS:
-        #semantic search: rules for this PSI, ranked by meaning
-        results = get_rules().query(query_texts=[question], n_results=n_results, where=psi_filter)
+        #semantic search: rules for this PSI and group, ranked by meaning
+        results = get_rules().query(query_texts=[question], n_results=n_results, where=where)
         docs = results["documents"][0]
         metas = results["metadatas"][0]
     else:
-        #no embedding model: return every rule for this PSI and let the AI pick
-        results = get_rules().get(where=psi_filter)
+        #no embedding model: return every rule for this PSI and group and let the AI pick
+        results = get_rules().get(where=where)
         docs = results["documents"]
         metas = results["metadatas"]
 
@@ -102,6 +118,6 @@ if __name__ == "__main__":
     print("PSI:", psi_info)
 
     if "error" not in psi_info:
-        advice = search_advisories("Can my construction workers work outside?", psi_info["psi"])
+        advice = search_advisories("Can my construction workers work outside?", psi_info["psi"], "worker")
         for a in advice:
             print(f"[{a['source']}] {a['text']}")

@@ -19,12 +19,12 @@ with open("docs/advisories.txt", encoding="utf-8") as f:
 
 ids, docs, metas = [], [], []
 for i, block in enumerate(blocks):
-    # header = ## band=101-200 | source=NEA
+    # header = ## band=101-200 | source=NEA | group=healthy
     # text = Healthy persons: If 24 hr PSI is Unhealthy...
     header, text = block.split("\n", 1)
 
     header_text = header[2:]             # "band=101-200 | source=NEA"
-    parts = header_text.split("|")       # ["band=101-200 ", " source=NEA"]
+    parts = header_text.split("|")       # ["band=101-200 ", " source=NEA ", " group=healthy"]
 
     fields = {}
     for part in parts:
@@ -32,14 +32,14 @@ for i, block in enumerate(blocks):
         key, value = part.split("=")     # key="band", value="101-200"
         fields[key] = value
 
-    # fields is now {"band": "101-200", "source": "NEA"}
+    # fields is now {"band": "101-200", "source": "NEA", "group": "healthy"}
 
     band = fields["band"]                # "101-200"
     lo, hi = band.split("-")             # lo="101", hi="200"
 
     ids.append(f"chunk-{i}")
     docs.append(text.strip())
-    metas.append({"min_psi": int(lo), "max_psi": int(hi), "source": fields["source"]})
+    metas.append({"min_psi": int(lo), "max_psi": int(hi), "source": fields["source"], "group": fields["group"]})
 
 rules.add(ids=ids, documents=docs, metadatas=metas)
 print(f"Loaded {len(ids)} chunks")

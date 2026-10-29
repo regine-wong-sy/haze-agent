@@ -1,38 +1,41 @@
-## band=0-50 | source=NEA
+## band=0-50 | source=NEA | group=all
 All persons: If 24 hr PSI is Good, normal activities.
 
-## band=51-100 | source=NEA
+## band=51-100 | source=NEA | group=healthy
 Healthy persons: If 24 hr PSI is Moderate, normal activities.
 
-## band=51-100 | source=NEA
+## band=51-100 | source=NEA | group=sensitive
 Elderly, pregnant women and children: If 24 hr PSI is Moderate, normal activities.
 
-## band=51-100 | source=NEA
+## band=51-100 | source=NEA | group=chronic
 Persons with chronic lung or heart disease: If 24 hr PSI is Moderate, normal activities.
 
-## band=101-200 | source=NEA
+## band=101-200 | source=NEA | group=healthy
 Healthy persons: If 24 hr PSI is Unhealthy, reduce prolonged or strenuous outdoor physical exertion.
 
-## band=101-200 | source=NEA
+## band=101-200 | source=NEA | group=sensitive
 Elderly, pregnant women and children: If 24 hr PSI is Unhealthy, minimise prolonged or strenuous outdoor physical exertion.
 
-## band=101-200 | source=NEA
+## band=101-200 | source=NEA | group=chronic
 Persons with chronic lung or heart disease: If 24 hr PSI is Unhealthy, avoid prolonged or strenuous outdoor physical exertion.
 
-## band=201-999 | source=NEA
+## band=201-999 | source=NEA | group=sensitive
 Vulnerable persons should avoid or minimise outdoor activity when air quality is Very Unhealthy (PSI above 200).
 
-## band=0-999 | source=NEA
+## band=201-999 | source=NEA | group=chronic
+Vulnerable persons should avoid or minimise outdoor activity when air quality is Very Unhealthy (PSI above 200).
+
+## band=0-999 | source=NEA | group=all
 The health impact of haze depends on one's health status, the PSI level, and the length and intensity of outdoor activity. Use the 1-hr PM2.5 for immediate activities and the 24-hr PSI forecast to plan ahead.
 
-## band=0-999 | source=MOM
+## band=0-999 | source=MOM | group=worker
 Employers should identify susceptible employees and set up a haze communication system, including a channel for employees to report adverse effects.
 
-## band=0-999 | source=MOM
+## band=0-999 | source=MOM | group=worker
 Employers should consider instituting regular breaks, slowing the pace of work, and encouraging hydration of employees using masks.
 
-## band=0-999 | source=MOM
+## band=0-999 | source=MOM | group=worker
 Where outdoor work is unavoidable, employers should provide suitable masks. Employees who wear masks or respirators should be fit-tested, and employers should keep sufficient stock.
 
-## band=0-999 | source=MOM
+## band=0-999 | source=MOM | group=worker
 Under the Workplace Safety and Health Act, employers must protect employees' safety and health. Failing to mitigate haze risks may lead to enforcement action, including stop work orders and composition fines.

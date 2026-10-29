@@ -100,3 +100,60 @@ class GetPsiTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FakeRules:
+    """Stand-in for the Chroma collection: applies the filter's PSI band and group like Chroma would."""
+    CHUNKS = [
+        ({"min_psi": 101, "max_psi": 200, "source": "NEA", "group": "healthy"}, "healthy advice"),
+        ({"min_psi": 101, "max_psi": 200, "source": "NEA", "group": "sensitive"}, "children advice"),
+        ({"min_psi": 101, "max_psi": 200, "source": "NEA", "group": "chronic"}, "heart advice"),
+        ({"min_psi": 51, "max_psi": 100, "source": "NEA", "group": "healthy"}, "moderate advice"),
+        ({"min_psi": 0, "max_psi": 999, "source": "NEA", "group": "all"}, "general advice"),
+        ({"min_psi": 0, "max_psi": 999, "source": "MOM", "group": "worker"}, "employer advice"),
+    ]
+
+    def get(self, where):
+        clauses = where["$and"]
+        psi_lo = clauses[0]["min_psi"]["$lte"]
+        psi_hi = clauses[1]["max_psi"]["$gte"]
+        groups = clauses[2]["group"]["$in"]
+        hits = [(m, t) for m, t in self.CHUNKS
+                if m["min_psi"] <= psi_lo and m["max_psi"] >= psi_hi and m["group"] in groups]
+        return {"documents": [t for _, t in hits], "metadatas": [m for m, _ in hits]}
+
+
+class SearchAdvisoriesTest(unittest.TestCase):
+    def search(self, psi, group):
+        with patch("tools.get_rules", lambda: FakeRules()):
+            return tools.search_advisories("question", psi, group)
+
+    def texts(self, psi, group):
+        return [a["text"] for a in self.search(psi, group)]
+
+    def test_returns_only_the_asked_group_plus_general(self):
+        self.assertEqual(self.texts(150, "sensitive"), ["children advice", "general advice"])
+        self.assertEqual(self.texts(150, "chronic"), ["heart advice", "general advice"])
+
+    def test_never_mixes_other_groups(self):
+        own = {"healthy": "healthy advice", "sensitive": "children advice", "chronic": "heart advice"}
+        for group, own_text in own.items():
+            others = set(own.values()) - {own_text}
+            self.assertFalse(others & set(self.texts(150, group)), group)
+
+    def test_worker_gets_mom_not_health_groups(self):
+        self.assertEqual(self.texts(150, "worker"), ["general advice", "employer advice"])
+
+    def test_psi_band_still_applies(self):
+        self.assertEqual(self.texts(75, "healthy"), ["moderate advice", "general advice"])
+
+    def test_unknown_group_is_an_error(self):
+        self.assertIn("error", self.search(150, "teenagers"))
+        self.assertIn("error", self.search(150, ""))
+
+
+class AdvisoryFilterTest(unittest.TestCase):
+    def test_filter_has_band_and_group(self):
+        self.assertEqual(tools.advisory_filter(150, "chronic"), {"$and": [
+            {"min_psi": {"$lte": 150}}, {"max_psi": {"$gte": 150}},
+            {"group": {"$in": ["chronic", "all"]}}]})
