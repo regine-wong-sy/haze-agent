@@ -126,6 +126,7 @@ if __name__ == "__main__":
                 case_total += 1
             elif "agent error" in missing:
                 errors += 1   #Ollama server error: not counted for or against
+                print(f"  [ERROR] {i}.{trial} {answer}")
             else:
                 case_total += 1
                 print(f"  [FAIL] {i}.{trial} {test['question']} (PSI {test['psi']})")
