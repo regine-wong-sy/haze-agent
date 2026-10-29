@@ -8,7 +8,7 @@ import tools
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 local_client = Client(host="http://localhost:11434") #Ollama on my laptop
 cloud_client = Client(host="https://ollama.com",
-                      headers={"Authorization": "Bearer " + os.environ["OLLAMA_API_KEY"]},
+                      headers={"Authorization": "Bearer " + os.environ["OLLAMA_API_KEY"].strip()},
                       timeout=25) #fail fast instead of hanging for a minute per call
 
 SORRY = "Sorry, I don't know how to answer this. Try asking about haze conditions or what to do at the current PSI."
