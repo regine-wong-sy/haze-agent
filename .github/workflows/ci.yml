@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  python-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python -m unittest test_tools
+
+  api-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: api/package-lock.json
+      - run: npm ci
+      - run: npm test
+
+  # Asks the real model the eval questions several times each and fails below MIN_PASS_RATE.
+  # Uses filter-only search (USE_EMBEDDINGS=0), the same as Render.
+  eval:
+    needs: [python-tests]
+    runs-on: ubuntu-latest
+    # secrets aren't available to pull requests from forks
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    env:
+      OLLAMA_API_KEY: ${{ secrets.OLLAMA_API_KEY }}
+      USE_EMBEDDINGS: "0"
+      TRIALS: "3"
+      MIN_PASS_RATE: "0.8"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - uses: actions/cache@v4
+        with:
+          path: onnx_model
+          key: onnx-model-v1
+      - run: python ingest.py
+      - run: python eval.py
+
+  # Render's own auto-deploy must be turned off (or set to "After CI Checks Pass"),
+  # otherwise Render deploys before the eval has run.
+  deploy-agent:
+    needs: [python-tests, eval]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          HOOK: ${{ secrets.RENDER_AGENT_DEPLOY_HOOK }}
+        run: |
+          if [ -z "$HOOK" ]; then echo "RENDER_AGENT_DEPLOY_HOOK not set, skipping deploy"; exit 0; fi
+          curl --fail --silent --show-error -X POST "$HOOK"
+
+  deploy-dashboard:
+    needs: [api-tests]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          HOOK: ${{ secrets.RENDER_DASHBOARD_DEPLOY_HOOK }}
+        run: |
+          if [ -z "$HOOK" ]; then echo "RENDER_DASHBOARD_DEPLOY_HOOK not set, skipping deploy"; exit 0; fi
+          curl --fail --silent --show-error -X POST "$HOOK"

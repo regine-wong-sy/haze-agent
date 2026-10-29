@@ -33,7 +33,7 @@ Three services on Render: Haze-API, Haze Agent, and the dashboard (the Node API 
 
 | Part  | Tech |
 | Agent | Python, Ollama (cloud `gpt-oss:20b`, local `qwen3:4b`), tool calling |
-| Retrieval | ChromaDB, 13 NEA/MOM advisory chunks filtered by PSI band |
+| Retrieval | ChromaDB, 14 NEA/MOM advisory chunks, each tagged with a PSI band and a group, filtered in code |
 | Agent server | Flask, gunicorn, MCP server (`get_psi`, `search_advisories`, `ask_haze_agent`) |
 | Database | PostgreSQL (Neon), node-postgres |
 | API | Node.js, Express, TypeScript |
@@ -45,21 +45,32 @@ Three services on Render: Haze-API, Haze Agent, and the dashboard (the Node API 
 | File       | Purpose |
 | `agent.py` | Agent loop: model ⇄ tools until a final answer, returns answer + area, PSI, tools used, route |
 | `tools.py` | `get_psi` and `search_advisories` (`USE_EMBEDDINGS` switches semantic vs filter-only search) |
-| `ingest.py` | Loads `docs/advisories.txt` into ChromaDB |
+| `ingest.py` | Loads `docs/advisories.txt` into ChromaDB with band, source and group tags |
 | `router.py` | Chooses cloud or local model |
 | `web.py` | Flask `/ask` endpoint, logs each conversation (a DB failure never blocks the answer) |
 | `db.py` | Saves conversations to Postgres with parameterised queries |
 | `server.py` | MCP server exposing the tools |
-| `eval.py` | Test questions with expected behaviour |
-| `api/` | Node + TS API: `GET /conversations`, `POST /conversations/:id/flag` |
+| `eval.py` | 18 test questions run several times each; reports a pass rate and exits non-zero below the threshold |
+| `export_flagged.py` | Prints eval test-case skeletons from conversations flagged in the dashboard |
+| `test_tools.py` | Unit tests for PSI fallback and group filtering |
+| `api/` | Node + TS API: `GET /conversations`, `POST /conversations/:id/flag` (`src/app.ts` is the app, `src/app.test.ts` its tests) |
 | `dashboard/` | React + TS review dashboard: list, detail, flag/unflag, stats |
 
-## Evaluation
+## Evaluation and CI
 
-`eval.py` runs a fixed set of questions against the agent:
+`eval.py` asks the agent 18 fixed questions, each `TRIALS` times (default 3), because the model's answers vary between runs. Each case checks words that must appear (`must_include`, `any_of`) and words that must not (`must_not_include`, which catches advice from the wrong group leaking in). It prints a pass rate per question and overall, and exits with code 1 if the overall rate is below `MIN_PASS_RATE` (default 0.8).
 
-- **10/10** with embedding search
-- **9–10/10** with filter-only search (used on Render), after adding a "don't mix advice between groups" rule to the prompt
+```bash
+TRIALS=3 USE_EMBEDDINGS=0 python eval.py
+```
+
+To grow the set: flag bad answers in the dashboard, run `python export_flagged.py`, and paste the skeletons into `TESTS`.
+
+GitHub Actions (`.github/workflows/ci.yml`) runs on every push and pull request:
+
+1. Python unit tests and API tests (no network, no model)
+2. The eval against the real model (needs the `OLLAMA_API_KEY` repo secret)
+3. On `main` only, if those pass, deploy to Render through deploy hooks (`RENDER_AGENT_DEPLOY_HOOK`, `RENDER_DASHBOARD_DEPLOY_HOOK` secrets). Turn off Render's own auto-deploy, or it will deploy before the eval has run.
 
 ## Design decisions
 

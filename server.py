@@ -23,10 +23,12 @@ def ask_haze_agent(question: str) -> dict:
     return {"model_used": route, "reason": reason, "answer": answer}
 
 @mcp.tool()
-def search_advisories(question: str, psi: int) -> list:
-    """Search official NEA and MOM haze guidelines for advice relevant
-    to the question at the given PSI. Call get_psi first to get the PSI."""
-    return tools.search_advisories(question, psi)
+def search_advisories(question: str, psi: int, group: str) -> list:
+    """Search official NEA and MOM haze guidelines for advice relevant to the
+    question at the given PSI. group is one of: healthy (healthy adults),
+    sensitive (children, elderly, pregnant), chronic (heart or lung disease),
+    worker (employers and outdoor workers). Call get_psi first to get the PSI."""
+    return tools.search_advisories(question, psi, group)
 
 
 if __name__ == "__main__":
