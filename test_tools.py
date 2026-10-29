@@ -76,6 +76,7 @@ class GetPsiTest(unittest.TestCase):
         with patch("tools.requests.get", get):
             self.assertEqual(tools.get_psi("Bedok")["region"], "east")
             self.assertEqual(tools.get_psi("jurong")["region"], "west")
+            self.assertEqual(tools.get_psi("punggol")["region"], "north")
 
     def test_unknown_region_gives_an_error_not_a_crash(self):
         get = fake_get(haze_error=ConnectionError("down"), gov_response=FakeResponse(200, DATA_GOV_REPLY))

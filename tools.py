@@ -41,7 +41,7 @@ def psi_level(psi):
 AREA_TO_REGION = {
     "bedok": "east", "tampines": "east", "pasir ris": "east", "changi": "east", "geylang": "east",
     "jurong": "west", "clementi": "west", "bukit batok": "west", "choa chu kang": "west", "tuas": "west",
-    "woodlands": "north", "yishun": "north", "sembawang": "north", "ang mo kio": "north",
+    "woodlands": "north", "yishun": "north", "sembawang": "north", "ang mo kio": "north", "punggol": "north",
     "orchard": "central", "toa payoh": "central", "bishan": "central", "novena": "central",
     "queenstown": "south", "tanjong pagar": "south", "harbourfront": "south", "marina bay": "south",
 }
