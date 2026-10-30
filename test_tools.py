@@ -1,6 +1,7 @@
 import os
 os.environ["USE_EMBEDDINGS"] = "0"  #skip loading the embedding model, these tests don't need it
 
+import time
 import unittest
 from unittest.mock import patch
 
@@ -52,6 +53,16 @@ class PsiLevelTest(unittest.TestCase):
 
 
 class GetPsiTest(unittest.TestCase):
+    def setUp(self):
+        #the cache and breaker are module-level, so every test starts from a clean slate
+        tools.reset_psi_state()
+        self.now = [0.0]
+        tools.psi_cache.clock = lambda: self.now[0]
+        patcher = patch.object(tools, "GOV_RETRY_DELAY", 0)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.addCleanup(setattr, tools.psi_cache, "clock", time.monotonic)
+
     def test_uses_haze_api_when_it_works(self):
         haze = {"region": "east", "psi": 80, "level": "Moderate"}
         get = fake_get(haze_response=FakeResponse(200, haze),
@@ -97,6 +108,114 @@ class GetPsiTest(unittest.TestCase):
         get = fake_get(haze_error=ConnectionError("down"), gov_response=FakeResponse(200, DATA_GOV_REPLY))
         with patch("tools.requests.get", get):
             self.assertEqual(set(tools.get_psi("east")), {"region", "psi", "level"})
+
+    def test_second_call_is_served_from_cache(self):
+        calls = []
+        haze = {"region": "east", "psi": 80, "level": "Moderate"}
+        def get(url, **kwargs):
+            calls.append(url)
+            return FakeResponse(200, haze)
+        with patch("tools.requests.get", get):
+            tools.get_psi("east")
+            self.now[0] += tools.PSI_CACHE_TTL - 1
+            self.assertEqual(tools.get_psi(" East "), haze)  #same region, different spelling
+        self.assertEqual(len(calls), 1)
+
+    def test_cache_expires_after_the_ttl(self):
+        calls = []
+        def get(url, **kwargs):
+            calls.append(url)
+            return FakeResponse(200, {"region": "east", "psi": 80, "level": "Moderate"})
+        with patch("tools.requests.get", get):
+            tools.get_psi("east")
+            self.now[0] += tools.PSI_CACHE_TTL + 1
+            tools.get_psi("east")
+        self.assertEqual(len(calls), 2)
+
+    def test_errors_are_not_cached(self):
+        get = fake_get(haze_error=ConnectionError("down"), gov_response=FakeResponse(200, DATA_GOV_REPLY))
+        with patch("tools.requests.get", get):
+            self.assertIn("error", tools.get_psi("narnia"))
+        self.assertIsNone(tools.psi_cache.get_stale("narnia"))
+
+    def test_old_reading_is_used_only_when_both_sources_are_down(self):
+        haze = {"region": "east", "psi": 80, "level": "Moderate"}
+        with patch("tools.requests.get", fake_get(haze_response=FakeResponse(200, haze))):
+            tools.get_psi("east")
+        self.now[0] += tools.PSI_CACHE_TTL + 1  #too old to be fresh, not too old to be a last resort
+        down = fake_get(haze_error=ConnectionError("down"), gov_error=TimeoutError("down"))
+        with patch("tools.requests.get", down):
+            self.assertEqual(tools.get_psi("east"), haze)
+
+    def test_reading_older_than_max_stale_is_not_used(self):
+        haze = {"region": "east", "psi": 80, "level": "Moderate"}
+        with patch("tools.requests.get", fake_get(haze_response=FakeResponse(200, haze))):
+            tools.get_psi("east")
+        self.now[0] += tools.PSI_MAX_STALE + 1
+        down = fake_get(haze_error=ConnectionError("down"), gov_error=TimeoutError("down"))
+        with patch("tools.requests.get", down):
+            self.assertIn("error", tools.get_psi("east"))
+
+    def test_haze_api_is_skipped_after_repeated_failures(self):
+        haze_calls = []
+        def get(url, **kwargs):
+            if url == tools.HAZE_API:
+                haze_calls.append(url)
+                raise ConnectionError("down")
+            return FakeResponse(200, DATA_GOV_REPLY)
+        with patch("tools.requests.get", get):
+            for region in ["north", "south", "east", "west"]:  #different regions so the cache can't answer
+                self.assertIn("psi", tools.get_psi(region))
+        self.assertEqual(len(haze_calls), 2)
+
+    def test_haze_api_is_tried_again_after_the_cooldown(self):
+        haze_calls = []
+        def get(url, **kwargs):
+            if url == tools.HAZE_API:
+                haze_calls.append(url)
+                raise ConnectionError("down")
+            return FakeResponse(200, DATA_GOV_REPLY)
+        clock = [0.0]
+        with patch.object(tools.haze_breaker, "clock", lambda: clock[0]), patch("tools.requests.get", get):
+            for region in ["north", "south", "east"]:
+                tools.get_psi(region)
+            self.assertEqual(len(haze_calls), 2)
+            clock[0] += tools.haze_breaker.cooldown
+            tools.get_psi("west")
+        self.assertEqual(len(haze_calls), 3)
+
+    def test_unknown_area_reply_does_not_trip_the_breaker(self):
+        #a 404 means Haze-API is up but doesn't know the area
+        get = fake_get(haze_response=FakeResponse(404, {"error": "unknown area"}),
+                       gov_response=FakeResponse(200, DATA_GOV_REPLY))
+        with patch("tools.requests.get", get):
+            for region in ["a", "b", "c"]:
+                tools.get_psi(region)
+        self.assertEqual(tools.haze_breaker.state, "closed")
+
+    def test_data_gov_is_retried_once(self):
+        attempts = []
+        def get(url, **kwargs):
+            if url == tools.HAZE_API:
+                raise ConnectionError("down")
+            attempts.append(url)
+            if len(attempts) == 1:
+                raise TimeoutError("slow")
+            return FakeResponse(200, DATA_GOV_REPLY)
+        with patch("tools.requests.get", get):
+            self.assertEqual(tools.get_psi("east")["psi"], 73)
+        self.assertEqual(len(attempts), 2)
+
+    def test_data_gov_gives_up_after_the_retries(self):
+        attempts = []
+        def get(url, **kwargs):
+            if url == tools.HAZE_API:
+                raise ConnectionError("down")
+            attempts.append(url)
+            raise TimeoutError("slow")
+        with patch("tools.requests.get", get):
+            self.assertIn("error", tools.get_psi("east"))
+        self.assertEqual(len(attempts), tools.GOV_RETRIES)
 
 
 if __name__ == "__main__":

@@ -1,7 +1,10 @@
 import os
+import time
 import requests
 import chromadb
 from chromadb.utils.embedding_functions import ONNXMiniLM_L6_V2
+import obs
+from reliability import TTLCache, CircuitBreaker
 
 HAZE_API = "https://haze-api.onrender.com/haze"
 DATA_GOV_PSI = "https://api-open.data.gov.sg/v2/real-time/api/psi"
@@ -59,23 +62,92 @@ def get_psi_direct(region):
     #same keys as Haze-API's reply; an extra "source" key made the model confuse it with NEA/MOM citations
     return {"region": key, "psi": psi, "level": psi_level(psi)}
 
-def get_psi(region):
-    """Get the current 24-hr PSI for a Singapore region or area (e.g. 'east', 'bedok').
-    Tries Haze-API first, then falls back to data.gov.sg directly."""
+#the 24-hr PSI only changes about once an hour, so a few minutes old is still correct.
+#older readings are only used when both sources are down, and not past PSI_MAX_STALE
+PSI_CACHE_TTL = 600
+PSI_MAX_STALE = 7200
+psi_cache = TTLCache(PSI_CACHE_TTL, PSI_MAX_STALE)
+#Haze-API can take 60s to wake up on Render, so after 2 failures skip it for a minute
+haze_breaker = CircuitBreaker(failures=2, cooldown=60)
+GOV_RETRIES = 2 #data.gov.sg is the last resort, so one retry on a network error
+GOV_RETRY_DELAY = 0.5
+
+def reset_psi_state():
+    """For tests: forget cached readings and breaker history."""
+    psi_cache.clear()
+    haze_breaker.success()
+
+def get_psi_haze(region):
+    """Ask Haze-API. Returns (reply, error); exactly one of them is None."""
+    t0 = time.time()
     try:
         resp = requests.get(HAZE_API, params={"region": region}, timeout=60)
         data = resp.json()
-        if resp.status_code == 200:
-            return data
-        primary_error = data.get("error", f"HTTP {resp.status_code}")
     except Exception as e:
-        primary_error = str(e)
+        haze_breaker.failure()
+        obs.count("psi.haze_api.error")
+        return None, str(e)
+    finally:
+        obs.observe("psi.haze_api", time.time() - t0)
+    if resp.status_code == 200:
+        haze_breaker.success()
+        return data, None
+    #a 4xx means it answered but didn't know the area, which is not an outage
+    if resp.status_code >= 500:
+        haze_breaker.failure()
+        obs.count("psi.haze_api.error")
+    else:
+        haze_breaker.success()
+    return None, data.get("error", f"HTTP {resp.status_code}")
 
-    print(f"  Haze-API failed ({primary_error}), falling back to data.gov.sg", flush=True)
+def get_psi_direct_retry(region):
+    for attempt in range(1, GOV_RETRIES + 1):
+        try:
+            return get_psi_direct(region)
+        except Exception as e:
+            obs.count("psi.data_gov.error")
+            if attempt == GOV_RETRIES:
+                raise
+            obs.event("psi_retry", source="data.gov.sg", attempt=attempt, error=str(e))
+            time.sleep(GOV_RETRY_DELAY * attempt)
+
+def get_psi(region):
+    """Get the current 24-hr PSI for a Singapore region or area (e.g. 'east', 'bedok').
+    Order: recent cached reading, Haze-API (unless its breaker is open), data.gov.sg,
+    and finally an older cached reading."""
+    key = region.strip().lower()
+    cached = psi_cache.get_fresh(key)
+    if cached is not None:
+        obs.count("psi.cache_hit")
+        obs.event("psi", region=key, source="cache")
+        return cached
+
+    primary_error = None
+    if haze_breaker.allow():
+        data, primary_error = get_psi_haze(region)
+        if data is not None:
+            psi_cache.put(key, data)
+            obs.event("psi", region=key, source="haze-api")
+            return data
+    else:
+        primary_error = "Haze-API skipped, it failed recently"
+        obs.count("psi.haze_api.skipped")
+
+    obs.event("psi_fallback", region=key, reason=primary_error, breaker=haze_breaker.state)
     try:
-        return get_psi_direct(region)
+        data = get_psi_direct_retry(region)
     except Exception as e:
+        stale = psi_cache.get_stale(key)
+        if stale is not None:
+            obs.count("psi.stale_served")
+            obs.event("psi", region=key, source="stale-cache", error=str(e))
+            return stale
+        obs.event("psi_failed", region=key, haze_error=primary_error, gov_error=str(e))
         return {"error": f"Haze-API and data.gov.sg both unavailable: {primary_error}; {e}"}
+    if "error" not in data:
+        psi_cache.put(key, data)
+    obs.event("psi", region=key, source="data.gov.sg")
+    return data
 
 
 #who an advisory is written for; "all" chunks apply to everyone and are always included
@@ -97,7 +169,7 @@ def search_advisories(question, psi, group, n_results=3):
     if group not in GROUPS:
         return {"error": f"Unknown group '{group}'. Use one of: {', '.join(GROUPS)}."}
     where = advisory_filter(psi, group)
-    print(f"  search_advisories start | embeddings={USE_EMBEDDINGS} psi={psi} group={group}", flush=True)
+    t0 = time.time()
 
     if USE_EMBEDDINGS:
         #semantic search: rules for this PSI and group, ranked by meaning
@@ -110,7 +182,9 @@ def search_advisories(question, psi, group, n_results=3):
         docs = results["documents"]
         metas = results["metadatas"]
 
-    print(f"  search_advisories done | {len(docs)} rules found", flush=True)
+    obs.observe("search_advisories", time.time() - t0)
+    obs.event("search_advisories", embeddings=USE_EMBEDDINGS, psi=psi, group=group, rules=len(docs),
+              seconds=round(time.time() - t0, 2))
     return [{"source": meta["source"], "text": text} for text, meta in zip(docs, metas)]
 
 if __name__ == "__main__":
