@@ -24,13 +24,41 @@
       const out = document.getElementById("answer");
       out.textContent = "Thinking... (first request can take up to a minute)";
       try {
-        const res = await fetch("/ask", {
+        const res = await fetch("/ask/stream", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ question: q })
         });
-        const data = await res.json();
-        out.textContent = data.answer || data.error;
+        if (!res.ok) {
+          const data = await res.json();
+          out.textContent = data.error;
+          return;
+        }
+        //one JSON object per line: status while a tool runs, tokens as the answer is written,
+        //then done with the full answer
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let typing = false;
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop(); //the last piece may be half a line
+          for (const line of lines) {
+            if (!line) continue;
+            const event = JSON.parse(line);
+            if (event.type === "status" && !typing) {
+              out.textContent = event.text;
+            } else if (event.type === "token") {
+              if (!typing) { out.textContent = ""; typing = true; }
+              out.textContent += event.text;
+            } else if (event.type === "done") {
+              out.textContent = event.answer;
+            }
+          }
+        }
       } catch (e) {
         out.textContent = "Request failed: " + e;
       }

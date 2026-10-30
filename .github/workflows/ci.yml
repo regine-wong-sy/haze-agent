@@ -15,7 +15,7 @@ jobs:
           python-version: "3.14"
           cache: pip
       - run: pip install -r requirements.txt
-      - run: python -m unittest test_tools
+      - run: python -m unittest test_tools test_reliability test_agent
 
   api-tests:
     runs-on: ubuntu-latest
